@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -104,6 +105,7 @@ func (a *ApiService) getData(c *gin.Context) (interface{}, error) {
 		data["subURI"] = subURI
 		data["enableTraffic"] = trafficAge > 0
 		data["onlines"] = onlines
+		data["os"] = runtime.GOOS
 	} else {
 		data["onlines"] = onlines
 	}
