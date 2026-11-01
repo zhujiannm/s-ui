@@ -78,7 +78,7 @@ func (s *ClashService) GetClash(subId string) (*string, []string, error) {
 		return nil, nil, err
 	}
 
-	outbounds, outTags, err := s.getOutbounds(client.Config, inDatas, client.Remark)
+	outbounds, outTags, err := s.getOutbounds(client.Config, inDatas, nodeRemark(&s.SettingService, client))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -120,6 +120,11 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 
 		t, _ := obMap["type"].(string)
 		if t == "selector" || t == "urltest" || t == "direct" {
+			continue
+		}
+		// Clash has no hysteria realm, and without it there is no address to
+		// reach the server at.
+		if _, viaRealm := obMap["realm"]; viaRealm {
 			continue
 		}
 

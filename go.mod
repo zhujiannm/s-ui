@@ -4,8 +4,8 @@ go 1.27.3
 
 require (
 	github.com/anytls/sing-anytls v0.0.13
-	github.com/gin-contrib/gzip v1.2.8
-	github.com/gin-contrib/sessions v1.1.2
+	github.com/gin-contrib/gzip v1.2.9
+	github.com/gin-contrib/sessions v1.1.3
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/gofrs/uuid/v5 v5.5.1
@@ -23,7 +23,7 @@ require (
 	github.com/sagernet/sing-vmess v0.2.9-0.20261019223527-a0c58542bd9d
 	github.com/shirou/gopsutil/v4 v4.26.9
 	golang.org/x/crypto v0.58.0
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
@@ -89,7 +89,7 @@ require (
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
-	github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91 // indirect
+	github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
