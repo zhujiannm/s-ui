@@ -60,6 +60,7 @@ func (s *InboundService) GetAll() (*[]map[string]interface{}, error) {
 			"id":     inbound.Id,
 			"type":   inbound.Type,
 			"tag":    inbound.Tag,
+			"enable": inbound.Enable,
 			"tls_id": inbound.TlsId,
 		}
 		if inbound.Options != nil {
@@ -80,7 +81,7 @@ func (s *InboundService) GetAll() (*[]map[string]interface{}, error) {
 			!(inbound.Type == "shadowtls" && shadowtls_version < 3) &&
 			!(inbound.Type == "shadowsocks" && ss_managed) {
 			users := []string{}
-			err = db.Raw("SELECT clients.name FROM clients, json_each(clients.inbounds) as je WHERE je.value = ?", inbound.Id).Scan(&users).Error
+			err = db.Raw("SELECT clients.name FROM clients, json_each(CAST(clients.inbounds AS TEXT)) as je WHERE je.value = ?", inbound.Id).Scan(&users).Error
 			if err != nil {
 				return nil, err
 			}
@@ -132,25 +133,31 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 				if err != nil && err != os.ErrInvalid {
 					return err
 				}
+				// Removing the listener leaves accepted connections open
+				if box := corePtr.GetInstance(); box != nil && !inbound.Enable {
+					box.SessionTracker().CloseByInbound(oldTag)
+				}
 			}
 
-			inboundConfig, err := inbound.MarshalJSON()
-			if err != nil {
-				return err
-			}
+			if inbound.Enable {
+				inboundConfig, err := inbound.MarshalJSON()
+				if err != nil {
+					return err
+				}
 
-			if act == "edit" {
-				inboundConfig, err = s.addUsers(tx, inboundConfig, inbound.Id, inbound.Type)
-			} else {
-				inboundConfig, err = s.initUsers(tx, inboundConfig, initUserIds, inbound.Type)
-			}
-			if err != nil {
-				return err
-			}
+				if act == "edit" {
+					inboundConfig, err = s.addUsers(tx, inboundConfig, inbound.Id, inbound.Type)
+				} else {
+					inboundConfig, err = s.initUsers(tx, inboundConfig, initUserIds, inbound.Type)
+				}
+				if err != nil {
+					return err
+				}
 
-			err = corePtr.AddInbound(inboundConfig)
-			if err != nil {
-				return err
+				err = corePtr.AddInbound(inboundConfig)
+				if err != nil {
+					return err
+				}
 			}
 		}
 
@@ -159,9 +166,19 @@ func (s *InboundService) Save(tx *gorm.DB, act string, data json.RawMessage, ini
 			return err
 		}
 
+		// Create skips a false bool for the column default and reads the
+		// default back into the struct, so the flag is kept and set after it
+		enable := inbound.Enable
 		err = tx.Save(&inbound).Error
 		if err != nil {
 			return err
+		}
+		if act == "new" && !enable {
+			inbound.Enable = false
+			err = tx.Model(model.Inbound{}).Where("id = ?", inbound.Id).Update("enable", false).Error
+			if err != nil {
+				return err
+			}
 		}
 		switch act {
 		case "new":
@@ -226,7 +243,7 @@ func (s *InboundService) UpdateOutJsons(tx *gorm.DB, inboundIds []uint, hostname
 func (s *InboundService) GetAllConfig(db *gorm.DB) ([]json.RawMessage, error) {
 	var inboundsJson []json.RawMessage
 	var inbounds []*model.Inbound
-	err := db.Model(model.Inbound{}).Preload("Tls").Find(&inbounds).Error
+	err := db.Model(model.Inbound{}).Preload("Tls").Where("enable = ?", true).Find(&inbounds).Error
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +284,7 @@ func (s *InboundService) fetchUsers(db *gorm.DB, inboundType string, condition s
 	var users []string
 
 	err := db.Raw(
-		fmt.Sprintf(`SELECT json_extract(clients.config, "$.%s")
+		fmt.Sprintf(`SELECT json_extract(CAST(clients.config AS TEXT), "$.%s")
 		FROM clients WHERE enable = true AND %s`,
 			inboundType, condition), args...).Scan(&users).Error
 	if err != nil {
@@ -303,7 +320,7 @@ func (s *InboundService) addUsers(db *gorm.DB, inboundJson []byte, inboundId uin
 		return nil, err
 	}
 
-	condition := fmt.Sprintf("%d IN (SELECT json_each.value FROM json_each(clients.inbounds))", inboundId)
+	condition := fmt.Sprintf("%d IN (SELECT json_each.value FROM json_each(CAST(clients.inbounds AS TEXT)))", inboundId)
 	inbound["users"], err = s.fetchUsers(db, inboundType, condition, nil, inbound)
 	if err != nil {
 		return nil, err
@@ -357,7 +374,7 @@ func (s *InboundService) initUsers(db *gorm.DB, inboundJson []byte, clientIds st
 func (s *InboundService) enabledClientNames(tx *gorm.DB, inboundId uint) (map[string]struct{}, error) {
 	var names []string
 	err := tx.Raw(
-		"SELECT clients.name FROM clients, json_each(clients.inbounds) AS je WHERE je.value = ? AND clients.enable = true",
+		"SELECT clients.name FROM clients, json_each(CAST(clients.inbounds AS TEXT)) AS je WHERE je.value = ? AND clients.enable = true",
 		inboundId).Scan(&names).Error
 	if err != nil {
 		return nil, err
@@ -378,7 +395,8 @@ func (s *InboundService) UpdateInboundsUsers(tx *gorm.DB, ids []uint) error {
 		return nil
 	}
 	var inbounds []*model.Inbound
-	err := tx.Model(model.Inbound{}).Preload("Tls").Where("id in ?", ids).Find(&inbounds).Error
+	// A disabled inbound is not in the core, and re-adding it here would turn it back on
+	err := tx.Model(model.Inbound{}).Preload("Tls").Where("id in ? AND enable = ?", ids, true).Find(&inbounds).Error
 	if err != nil {
 		return err
 	}
@@ -428,7 +446,7 @@ func (s *InboundService) RestartInbounds(tx *gorm.DB, ids []uint) error {
 		return nil
 	}
 	var inbounds []*model.Inbound
-	err := tx.Model(model.Inbound{}).Preload("Tls").Where("id in ?", ids).Find(&inbounds).Error
+	err := tx.Model(model.Inbound{}).Preload("Tls").Where("id in ? AND enable = ?", ids, true).Find(&inbounds).Error
 	if err != nil {
 		return err
 	}
